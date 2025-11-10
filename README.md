@@ -19,7 +19,7 @@ python dependency_visualizer.py --package "A" --source "test_repo_cycle.txt" --t
 ```
 ## Сборка проекта
 
-Для визуализации графа с использованием языка Mermaid необходимо скачать на свое устройство Node.js с сайта [nodejs.org](https://nodejs.org/en) и запустить следующие комманды.
+Для визуализации графа с использованием языка Mermaid необходимо скачать на свое устройство Node.js с сайта [nodejs.org](https://nodejs.org/en) и запустить следующие команды.
 
 ```bash
 npm install -g @mermaid-js/mermaid-cli
