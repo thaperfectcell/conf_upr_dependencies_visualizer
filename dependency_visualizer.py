@@ -3,6 +3,7 @@ import sys
 import urllib.request
 import json
 import re
+from collections import deque
 
 def parse_arguments():
     """Парсинг аргументов командной строки"""
@@ -80,7 +81,6 @@ def get_package_dependencies(package_name, source_url):
             if requires_dist:
                 for requirement in requires_dist:
                     # Извлекаем только имя пакета из строки требования
-                    # Пример: "urllib3 (>=1.21.1,<3)" -> "urllib3"
                     match = re.match(r'^([a-zA-Z0-9_-]+)', requirement)
                     if match:
                         dependencies.append(match.group(1))
@@ -94,6 +94,71 @@ def get_package_dependencies(package_name, source_url):
         print(f"Error fetching dependencies: {e}", file=sys.stderr)
         sys.exit(1)
 
+def read_test_repository(file_path):
+    """
+    Читает тестовый репозиторий из файла
+    Формат: A: B, C
+    """
+    dependencies = {}
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            for line in file:
+                line = line.strip()
+                if line and ':' in line:
+                    package, deps = line.split(':', 1)
+                    package = package.strip()
+                    # Извлекаем зависимости и убираем пробелы
+                    dep_list = [dep.strip() for dep in deps.split(',') if dep.strip()]
+                    dependencies[package] = dep_list
+        return dependencies
+    except Exception as e:
+        print(f"Error reading test repository: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def build_dependency_graph(start_package, get_dependencies_func):
+    """
+    Строит граф зависимостей с помощью BFS с рекурсией
+    Обрабатывает циклические зависимости
+    """
+    graph = {}
+    visited = set()
+    recursion_stack = set()
+    cycles = []
+    
+    def bfs(package):
+        # Проверка на циклическую зависимость
+        if package in recursion_stack:
+            cycles.append(package)
+            return []
+        
+        # Если пакет уже посещен, возвращаем его зависимости
+        if package in visited:
+            return graph.get(package, [])
+        
+        # Добавляем пакет в стек рекурсии и посещенные
+        recursion_stack.add(package)
+        visited.add(package)
+        
+        # Получаем прямые зависимости
+        direct_dependencies = get_dependencies_func(package)
+        graph[package] = direct_dependencies
+        
+        # Рекурсивно обходим все зависимости
+        all_dependencies = set(direct_dependencies)
+        for dep in direct_dependencies:
+            child_dependencies = bfs(dep)
+            all_dependencies.update(child_dependencies)
+        
+        # Убираем пакет из стека рекурсии
+        recursion_stack.remove(package)
+        
+        return list(all_dependencies)
+    
+    # Запускаем BFS с корневого пакета
+    bfs(start_package)
+    
+    return graph, cycles
+
 def main():
     """Основная функция"""
     try:
@@ -103,18 +168,33 @@ def main():
         # Валидируем аргументы
         validate_arguments(args)
         
-        # Этап 2: Получаем и выводим прямые зависимости
-        if not args.test_mode:
-            print(f"Fetching direct dependencies for package: {args.package}")
-            dependencies = get_package_dependencies(args.package, args.source)
+        # Определяем функцию для получения зависимостей в зависимости от режима
+        if args.test_mode:
+            # Режим тестирования: читаем из файла
+            print(f"Test mode: reading dependencies from {args.source}")
+            test_dependencies = read_test_repository(args.source)
             
-            # (Только для этого этапа) Выводим прямые зависимости
-            print(f"Direct dependencies of '{args.package}':")
-            if dependencies:
-                for i, dep in enumerate(dependencies, 1):
-                    print(f"  {i}. {dep}")
-            else:
-                print("  No dependencies found")
+            def get_deps_test(package):
+                return test_dependencies.get(package, [])
+            
+            get_dependencies_func = get_deps_test
+        else:
+            # Режим работы с реальным PyPI
+            print(f"Fetching dependencies for package: {args.package}")
+            get_dependencies_func = get_package_dependencies
+        
+        # Строим граф зависимостей
+        dependency_graph, cycles = build_dependency_graph(args.package, get_dependencies_func)
+        
+        # Выводим результаты
+        print(f"\nDependency graph for '{args.package}':")
+        for package, deps in dependency_graph.items():
+            print(f"  {package} -> {deps}")
+        
+        if cycles:
+            print(f"\nCyclic dependencies detected: {cycles}")
+        else:
+            print("\nNo cyclic dependencies found")
         
     except Exception as e:
         print(f"Critical error: {e}", file=sys.stderr)
