@@ -1,0 +1,13 @@
+graph TD
+    brotli --> urllib3
+    brotlicffi --> urllib3
+    h2 --> urllib3
+    pysocks --> urllib3
+    zstandard --> urllib3
+    cffi --> brotlicffi
+    pycparser --> cffi
+    hyperframe --> h2
+    hpack --> h2
+    cffi --> zstandard
+    cffi --> zstandard
+    style urllib3 fill:#f9f,stroke:#333,stroke-width:2px
