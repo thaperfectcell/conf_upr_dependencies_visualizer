@@ -224,11 +224,11 @@ def generate_mermaid_graph(dependency_graph, start_package):
             # Экранируем имена пакетов которые могут быть ключевыми словами
             safe_package = escape_mermaid_id(package)
             safe_dep = escape_mermaid_id(dep)
-            mermaid_code += f"    {safe_dep} --> {safe_package}\n"
+            mermaid_code += f"    {safe_package} --> {safe_dep}\n"
     
     # Выделяем стартовый пакет
     safe_start = escape_mermaid_id(start_package)
-    mermaid_code += f"    style {safe_start} fill:#f9f,stroke:#333,stroke-width:2px\n"
+    mermaid_code += f"    style {safe_start} fill:#99f,stroke:#333,stroke-width:2px\n"
     
     return mermaid_code
 
