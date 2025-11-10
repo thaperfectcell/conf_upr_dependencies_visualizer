@@ -159,6 +159,57 @@ def build_dependency_graph(start_package, get_dependencies_func):
     
     return graph, cycles
 
+def get_load_order(dependency_graph, start_package):
+    """
+    Определяет порядок загрузки зависимостей
+    Использует топологическую сортировку
+    """
+    # Строим обратный граф для подсчета входящих степеней
+    in_degree = {}
+    reverse_graph = {}
+    
+    # Инициализируем структуры данных
+    for package in dependency_graph:
+        in_degree[package] = 0
+        reverse_graph[package] = []
+    
+    # Заполняем обратный граф и считаем входящие степени
+    for package, dependencies in dependency_graph.items():
+        for dep in dependencies:
+            if dep in reverse_graph:
+                reverse_graph[dep].append(package)
+                in_degree[package] += 1
+            else:
+                # Если зависимость не в графе, добавляем ее
+                reverse_graph[dep] = [package]
+                in_degree[dep] = 0
+                in_degree[package] = in_degree.get(package, 0) + 1
+    
+    # Алгоритм Кана (топологическая сортировка)
+    queue = deque()
+    load_order = []
+    
+    # Добавляем узлы с нулевой входящей степенью
+    for package, degree in in_degree.items():
+        if degree == 0:
+            queue.append(package)
+    
+    while queue:
+        current = queue.popleft()
+        load_order.append(current)
+        
+        # Уменьшаем входящую степень соседей
+        for neighbor in reverse_graph.get(current, []):
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
+    
+    # Проверяем наличие циклов (невозможность топологической сортировки)
+    if len(load_order) != len(in_degree):
+        print("Warning: Graph has cycles, load order may be incomplete")
+    
+    return load_order
+
 def main():
     """Основная функция"""
     try:
@@ -186,7 +237,7 @@ def main():
         # Строим граф зависимостей
         dependency_graph, cycles = build_dependency_graph(args.package, get_dependencies_func)
         
-        # Выводим результаты
+        # Выводим граф
         print(f"\nDependency graph for '{args.package}':")
         for package, deps in dependency_graph.items():
             print(f"  {package} -> {deps}")
@@ -195,6 +246,14 @@ def main():
             print(f"\nCyclic dependencies detected: {cycles}")
         else:
             print("\nNo cyclic dependencies found")
+        
+        # ЭТАП 4: Порядок загрузки зависимостей
+        print(f"\n=== STAGE 4: Dependency Load Order ===")
+        load_order = get_load_order(dependency_graph, args.package)
+        
+        print(f"Load order for '{args.package}':")
+        for i, package in enumerate(load_order, 1):
+            print(f"  {i}. {package}")
         
     except Exception as e:
         print(f"Critical error: {e}", file=sys.stderr)
