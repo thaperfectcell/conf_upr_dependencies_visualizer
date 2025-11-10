@@ -3,6 +3,7 @@ import sys
 import urllib.request
 import json
 import re
+import os
 from collections import deque
 
 def parse_arguments():
@@ -118,7 +119,7 @@ def read_test_repository(file_path):
 def build_dependency_graph(start_package, get_dependencies_func):
     """
     Строит граф зависимостей с помощью BFS с рекурсией
-    Обрабатывает циклические зависимости
+    Завершает программу при обнаружении циклических зависимостей
     """
     graph = {}
     visited = set()
@@ -126,10 +127,10 @@ def build_dependency_graph(start_package, get_dependencies_func):
     cycles = []
     
     def bfs(package):
-        # Проверка на циклическую зависимость
+        # Проверка на циклическую зависимость - ЗАВЕРШАЕМ ПРОГРАММУ
         if package in recursion_stack:
-            cycles.append(package)
-            return []
+            print(f"Error: Cyclic dependency detected involving package '{package}'", file=sys.stderr)
+            sys.exit(1)  # ЗАВЕРШАЕМ ПРОГРАММУ
         
         # Если пакет уже посещен, возвращаем его зависимости
         if package in visited:
@@ -210,6 +211,89 @@ def get_load_order(dependency_graph, start_package):
     
     return load_order
 
+def generate_mermaid_graph(dependency_graph, start_package):
+    """
+    Генерирует текстовое представление графа на языке Mermaid
+    Экранирует имена пакетов которые являются ключевыми словами
+    """
+    mermaid_code = "graph TD\n"
+    
+    # Добавляем все узлы и связи
+    for package, dependencies in dependency_graph.items():
+        for dep in dependencies:
+            # Экранируем имена пакетов которые могут быть ключевыми словами
+            safe_package = escape_mermaid_id(package)
+            safe_dep = escape_mermaid_id(dep)
+            mermaid_code += f"    {safe_dep} --> {safe_package}\n"
+    
+    # Выделяем стартовый пакет
+    safe_start = escape_mermaid_id(start_package)
+    mermaid_code += f"    style {safe_start} fill:#f9f,stroke:#333,stroke-width:2px\n"
+    
+    return mermaid_code
+
+def escape_mermaid_id(name):
+    """
+    Экранирует идентификаторы для Mermaid
+    Если имя является ключевым словом, оборачиваем в кавычки
+    """
+    keywords = {'click', 'style', 'graph', 'TD', 'LR', 'RL', 'BT'}
+    
+    # Если имя содержит не-ASCII символы или является ключевым словом
+    if not name.isidentifier() or name in keywords:
+        return f'"{name}"'
+    return name
+
+def print_ascii_tree(dependency_graph, start_package, prefix="", is_last=True):
+    """
+    Выводит зависимости в виде ASCII-дерева
+    """
+    def build_tree(package, prefix, is_last):
+        """Рекурсивно строит дерево"""
+        # Текущий узел
+        connector = "└── " if is_last else "├── "
+        print(prefix + connector + package)
+        
+        # Новый префикс для дочерних элементов
+        new_prefix = prefix + ("    " if is_last else "│   ")
+        
+        # Рекурсивно обрабатываем зависимости
+        dependencies = dependency_graph.get(package, [])
+        for i, dep in enumerate(dependencies):
+            is_last_dep = i == len(dependencies) - 1
+            build_tree(dep, new_prefix, is_last_dep)
+    
+    print(f"Dependency tree for {start_package}:")
+    build_tree(start_package, "", True)
+
+def save_mermaid_to_png(mermaid_code, output_file):
+    """
+    Сохраняет Mermaid граф в PNG файл и текстовый файл с кодом
+    """
+    try:
+        # Сохраняем Mermaid код в текстовый файл
+        text_output = output_file.replace('.png', '.mmd')
+        with open(text_output, 'w', encoding='utf-8') as f:
+            f.write(mermaid_code)
+        print(f"Mermaid code saved to: {text_output}")
+        
+        # Создаем временный файл с Mermaid кодом для конвертации
+        mermaid_file = "temp_graph.mmd"
+        with open(mermaid_file, 'w', encoding='utf-8') as f:
+            f.write(mermaid_code)
+        
+        # Конвертируем в PNG используя mermaid-cli
+        os.system(f"mmdc -i {mermaid_file} -o {output_file} -t dark")
+        
+        # Удаляем временный файл
+        os.remove(mermaid_file)
+        
+        print(f"Graph image saved to: {output_file}")
+        
+    except Exception as e:
+        print(f"Warning: Could not generate PNG. Install mermaid-cli: npm install -g @mermaid-js/mermaid-cli")
+        print(f"Mermaid code saved to: {output_file.replace('.png', '.mmd')}")
+        
 def main():
     """Основная функция"""
     try:
@@ -232,7 +316,10 @@ def main():
         else:
             # Режим работы с реальным PyPI
             print(f"Fetching dependencies for package: {args.package}")
-            get_dependencies_func = get_package_dependencies
+            def get_deps_real(package):
+                return get_package_dependencies(package, args.source)
+            
+            get_dependencies_func = get_deps_real
         
         # Строим граф зависимостей
         dependency_graph, cycles = build_dependency_graph(args.package, get_dependencies_func)
@@ -242,18 +329,30 @@ def main():
         for package, deps in dependency_graph.items():
             print(f"  {package} -> {deps}")
         
-        if cycles:
-            print(f"\nCyclic dependencies detected: {cycles}")
-        else:
-            print("\nNo cyclic dependencies found")
+        # УБИРАЕМ вывод cycles, так как теперь программа завершается при их обнаружении
+        print("\nNo cyclic dependencies found")
         
-        # ЭТАП 4: Порядок загрузки зависимостей
-        print(f"\n=== STAGE 4: Dependency Load Order ===")
+        # Порядок загрузки зависимостей
         load_order = get_load_order(dependency_graph, args.package)
-        
-        print(f"Load order for '{args.package}':")
+        print(f"\nLoad order for '{args.package}':")
         for i, package in enumerate(load_order, 1):
             print(f"  {i}. {package}")
+        
+        # ЭТАП 5: Визуализация
+        print(f"\n=== STAGE 5: Visualization ===")
+        
+        # 1. Генерируем Mermaid граф
+        mermaid_code = generate_mermaid_graph(dependency_graph, args.package)
+        print(f"\nMermaid graph generated:")
+        print(mermaid_code)
+        
+        # 2. Сохраняем в PNG
+        save_mermaid_to_png(mermaid_code, args.output)
+        
+        # 3. ASCII-дерево если задан параметр
+        if args.ascii_tree:
+            print(f"\nASCII Tree:")
+            print_ascii_tree(dependency_graph, args.package)
         
     except Exception as e:
         print(f"Critical error: {e}", file=sys.stderr)
